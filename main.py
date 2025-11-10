@@ -31,4 +31,3 @@ def exam_timetable():
             b.append(downloadlink)
             n=n+1
     return b
-print(exam_timetable())

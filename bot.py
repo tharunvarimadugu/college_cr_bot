@@ -14,7 +14,7 @@ from telegram.ext import (
 
 # --- Configuration ---
 # FIX 1: Defined the bot token
-TOKEN = "YOUR_BOT_TOKEN"
+TOKEN="TOKEN OF YOUR BOT"
 # --- Constants ---
 # States for ConversationHandler
 (
@@ -83,14 +83,15 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     
     try:
         notice = exam_timetable(regulation)
-        msg = "\n\n".join(notice[:MAX_TIMETABLE_ENTRIES])
+        msg = "\n".join(notice[:MAX_TIMETABLE_ENTRIES])
         if not msg:
              msg = "No timetable found for that regulation."
     except Exception as e:
         logger.error(f"Error in exam_timetable function: {e}")
         msg = "Sorry, an error occurred while fetching the timetable."
+    for index, entry in enumerate(msg.split("\n")):
+        await query.message.reply_text(text=entry)
 
-    await query.edit_message_text(text=msg)
 
 
 # --- 2. ConversationHandler for /resultscheck ---

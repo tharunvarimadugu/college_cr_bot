@@ -1,12 +1,7 @@
-from selenium import webdriver
-from selenium.webdriver.support.ui import Select
-from selenium.webdriver.common.by import By
+import requests
+from bs4 import BeautifulSoup
 import logging
-
-# --- NEW IMPORTS ---
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
+from urllib.parse import urljoin
 
 # Set up a logger for this module
 logger = logging.getLogger(__name__)
@@ -14,128 +9,183 @@ logger = logging.getLogger(__name__)
 class result_bot:
     
     def __init__(self):
-        """Initializes the bot, setting the driver and department lists to None."""
-        self.driver = None
+        """Initializes the bot."""
         self.departments = {}
         self.valid = []
 
     def bot_work(self, all_data_collected):
         """
-        Starts the driver IN HEADLESS MODE, gets the result link, 
-        and scrapes the list of departments.
+        Fetches the result link and scrapes the list of departments using requests.
         all_data_collected[0] = result link
         """
         try:
-            # --- START OF MODIFICATIONS ---
+            url = all_data_collected[0]
+            logger.info(f"Fetching URL: {url}")
             
-            # 1. Set up Chrome Options
-            options = Options()
-            options.add_argument("--headless")
-            options.add_argument("--no-sandbox")
-            options.add_argument("--disable-dev-shm-usage")
-            options.add_argument("--window-size=1920,1080") # Set window size to avoid layout issues
+            response = requests.get(url, timeout=30)
+            response.raise_for_status()
             
-            # 2. Set up the Service to auto-install the driver
-            service = Service(ChromeDriverManager().install())
+            soup = BeautifulSoup(response.text, 'lxml')
             
-            # 3. Create the driver with the new service and options
-            self.driver = webdriver.Chrome(service=service, options=options)
+            select_department = soup.find('select', id='department1')
+            if not select_department:
+                logger.error("Could not find department select box.")
+                return []
+                
+            options = select_department.find_all('option')
             
-            # --- END OF MODIFICATIONS ---
+            # Populate instance variables
+            self.departments = {opt.text.strip(): opt.get("value") for opt in options}
+            # Remove placeholder if exists (usually has empty value or specific text)
+            self.departments = {k: v for k, v in self.departments.items() if v and "Select Department" not in k}
             
-            self.driver.get(all_data_collected[0])
-            self.driver.implicitly_wait(30)  # Wait for page to load
-            
-            select_department = self.driver.find_element(By.ID, "department1")
-            select = Select(select_department)
-            
-            # Populate instance variables so they persist
-            self.departments = {opt.text: opt.get_attribute("value") for opt in select.options}
-            self.departments.pop('-- Select Department here --', None)  # Remove placeholder
-            self.valid = list(self.departments.keys())  # List of department names
+            self.valid = list(self.departments.keys())
             
             logger.info(f"Successfully fetched {len(self.valid)} departments.")
-            return self.valid  # Return the list of names
+            return self.valid
             
         except Exception as e:
             logger.error(f"Error in bot_work: {e}", exc_info=True)
-            if self.driver:
-                self.driver.quit()
-                self.driver = None
-            return []  # Return empty list on failure
+            return []
 
-    #
-    # --- NO CHANGES NEEDED to select_department() ---
-    #
     def select_department(self, all_data_collected):
         """
-        Uses the active driver session to submit the form with all details.
+        Submits the form with all details using requests and returns the result as text.
         all_data_collected = [link, department_index, roll, dob]
         """
-        
-        # Check if the active driver session is active
-        if self.driver is None:
-            logger.error("No active driver session in select_department.")
-            return "Error: Session expired. Please start over with /resultscheck."
-        
         try:
-            # Use the existing, stored driver
-            driver = self.driver 
-            
-            # Get data from all_data_collected
+            link = all_data_collected[0]
             department_index = all_data_collected[1]
             roll_number = all_data_collected[2]
             date_of_birth = all_data_collected[3]
             
-            # Find the department <select> element
-            select_department_element = driver.find_element(By.ID, "department1")
-            select = Select(select_department_element)
+            # Get department value
+            if 0 <= department_index < len(self.valid):
+                choice = self.valid[department_index]
+                value = self.departments.get(choice)
+            else:
+                return "Error: Invalid department selection."
+
+            logger.info(f"Submitting for: {choice} ({value}), Roll: {roll_number}, DOB: {date_of_birth}")
+
+            # Prepare form data
+            # Based on previous analysis: department1, usn, dateofbirth
+            payload = {
+                'department1': value,
+                'usn': roll_number,
+                'dateofbirth': date_of_birth
+            }
             
-            # Use the stored department list to get the correct value
-            choice = self.valid[department_index]  # Get name from index
-            value = self.departments[choice]       # Get value from name
+            # Submit POST request
+            # The form action is usually the same URL or relative. 
+            # We'll post to the same URL as 'link' since the action was 'myresultug?resultid=...' which matches the link.
+            response = requests.post(link, data=payload, timeout=30)
+            response.raise_for_status()
             
-            logger.info(f"Selecting department: {choice} (value: {value})")
-            select.select_by_value(value)
+            soup = BeautifulSoup(response.text, 'lxml')
             
-            roll_input = driver.find_element(By.ID, "usn")
-            roll_input.send_keys(roll_number)
+            # Find the result table
+            # The original code looked for the 2nd table.
+            tables = soup.find_all('table')
             
-            dob_input = driver.find_element(By.ID, "dateofbirth")
-            dob_input.send_keys(date_of_birth)
+            # Find the result table
+            # The structure is:
+            # Table 0: Search form
+            # Table 1: Result data (nested with headers directly in table tag sometimes)
+            # Table 2: Footer
             
-            btn = driver.find_element(By.CSS_SELECTOR, "input[type='submit'][value='Search']")
-            btn.click()
-            
-            driver.implicitly_wait(10)  # Wait for results to load
-            
-            tables = driver.find_elements(By.TAG_NAME, "table")
-            
+            tables = soup.find_all('table')
             result_table = None
-            n = 0
+            
+            # Heuristic: Look for a table containing "Roll Number" or "Course Code"
             for table in tables:
-                n += 1
-                if n == 2:  # Assuming the 2nd table is the correct one
+                text = table.get_text()
+                if "Roll Number" in text and "Course Code" in text:
                     result_table = table
                     break
             
             if result_table:
-                table_png = "result_table.png"
-                result_table.screenshot(table_png)
-                logger.info(f"Successfully created screenshot: {table_png}")
-                return table_png
+                # Extract Student Info
+                text_content = result_table.get_text(" ", strip=True)
+                
+                # Simple extraction using string splitting if structure is consistent
+                # Or better, iterate rows.
+                
+                rows = result_table.find_all('tr')
+                
+                student_info = []
+                marks_data = []
+                gpa_data = []
+                
+                mode = "info" # info, marks, gpa
+                
+                for row in rows:
+                    cols = row.find_all(['th', 'td'])
+                    cols_text = [ele.get_text(strip=True) for ele in cols]
+                    
+                    if not cols_text:
+                        continue
+                        
+                    line_text = " ".join(cols_text)
+                    
+                    if "Roll Number:" in line_text:
+                         student_info.append(f"**{line_text}**")
+                    elif "Name:" in line_text:
+                         student_info.append(f"**{line_text}**")
+                    elif "Course Code" in line_text:
+                        mode = "marks"
+                        marks_data.append("| Code | Course Name | Credits | Grade | GP |")
+                        marks_data.append("|---|---|---|---|---|")
+                    elif "Credits Taken" in line_text:
+                        mode = "gpa"
+                        gpa_data.append("| Credits Taken | Earned | SGPA | CGPA | Total |")
+                        gpa_data.append("|---|---|---|---|---|")
+                    else:
+                        # Data rows
+                        if mode == "marks":
+                            # Ensure we have enough columns for a valid marks row
+                            # Expected: Code, Name (colspan 2?), Credits, Grade, GP
+                            # HTML structure might vary, but let's try to format it.
+                            if len(cols_text) >= 5:
+                                marks_data.append(f"| {' | '.join(cols_text)} |")
+                        elif mode == "gpa":
+                            gpa_data.append(f"| {' | '.join(cols_text)} |")
+
+                # Construct final message
+                message_parts = []
+                if student_info:
+                    message_parts.extend(student_info)
+                    message_parts.append("") # Spacer
+                
+                if marks_data:
+                    message_parts.append("**Results:**")
+                    message_parts.extend(marks_data)
+                    message_parts.append("")
+                    
+                if gpa_data:
+                    message_parts.append("**GPA:**")
+                    message_parts.extend(gpa_data)
+                
+                if not message_parts:
+                     # Fallback if parsing failed but table was found
+                     return f"Found result but could not parse details.\nRaw text: {text_content[:500]}"
+                     
+                return "\n".join(message_parts)
+
             else:
-                logger.warning("Could not find the result table after submitting form.")
-                return "Error: Could not find the result table."
+                # Check for error messages in the whole page text
+                page_text = soup.get_text()
+                if "Date of Birth is Wrong" in page_text:
+                     return "Error: Date of Birth is incorrect."
+                if "Invalid" in page_text or "not found" in page_text:
+                     return "Error: Invalid details or no result found."
+                
+                logger.warning("Could not find the result table in response.")
+                return "Error: Could not find result table."
 
         except Exception as e:
             logger.error(f"Error in select_department: {e}", exc_info=True)
             return f"An error occurred: {e}"
-            
-        finally:
-            # Always quit the driver after this step (success or fail)
-            if self.driver:
-                self.driver.quit()
-                self.driver = None
+
 if __name__ == "__main__":
     pass

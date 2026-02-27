@@ -69,6 +69,6 @@ This project is shared for educational purposes. If you want a formal license ad
 
 - Telegram: @MITS_COLLEGEBOT (bot account)
 - Email: tharunvariamdugu@gmail.com
-- Repository owner / developer: tharunvarimadugu
+- Repository owner / developer: tharun varimadugu
 
-If you want me to add more details (example commands, deployment instructions, or include the actual QR image in the repo), tell me where you'd like the image placed (suggested path: `assets/mits_qr.png`).
+

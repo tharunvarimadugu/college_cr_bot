@@ -34,7 +34,8 @@ If the image above does not appear, open this link in Telegram:
 Once you open the bot in Telegram, typical interactions include:
 - /start — Introduction and help
 - /results — Retrieve available result information (follow prompts)
-- /timetable — Show current semester timetable
+- /timetable — to check the exam  timetable with repective  to regulation  
+- /notification - updates on exam notifications 
 - Other commands and flows may be present depending on the bot version
 
 Commands and behavior may change as the bot is updated. Use /help or /start in the bot to see the latest available commands.

@@ -26,7 +26,6 @@ A Telegram bot built primarily for Madanapalle Institute of Technology and Scien
 If the image above does not appear, open this link in Telegram:
 - https://t.me/MITS_COLLEGEBOT
 
-(If you plan to add the QR image to this repository, place it at `assets/mits_qr.png`. Rename as needed and update the path above.)
 
 ---
 
